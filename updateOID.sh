@@ -8,7 +8,10 @@ elif [ ! -r dumpasn1.cfg ]; then
     echo Please download $URL in this directory.
     exit 1
 fi
-cat dumpasn1.cfg | \
+if [ $# -gt 0 ]; then
+    echo "Include private OIDs from: $@"
+fi
+cat dumpasn1.cfg $@ | \
 tr -d '\r' | \
 awk -v apos="'" -v q='"' -v url="$URL" '
     function clean() {
