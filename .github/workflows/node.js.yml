@@ -12,14 +12,16 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [ 6.4.0, latest ]
+        node-version: [ 12.20.0, latest ]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
     - run: npm test all
+    - run: npm install
+      if: matrix.node-version == 'latest'
     - run: npm run lint
       if: matrix.node-version == 'latest'

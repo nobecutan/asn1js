@@ -1,10 +1,10 @@
 // ASN.1 JavaScript decoder
-// Copyright (c) 2008-2023 Lapo Luchini <lapo@lapo.it>
+// Copyright (c) 2008-2024 Lapo Luchini <lapo@lapo.it>
 
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
 // MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
@@ -13,22 +13,18 @@
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-(typeof define != 'undefined' ? define : function (factory) { 'use strict';
-    if (typeof module == 'object') module.exports = factory(function (name) { return require(name); });
-    else window.dom = factory(function (name) { return window[name.substring(2)]; });
-})(function (require) {
-'use strict';
+import { ASN1 } from './asn1.js';
+import { oids } from './oids.js';
+import { bindContextMenu } from './context.js';
 
 const
-    ASN1 = require('./asn1'),
-    oids = require('./oids'),
     lineLength = 80,
     contentLength = 8 * lineLength,
     DOM = {
         ellipsis: '\u2026',
         tag: function (tagName, className, text) {
             let t = document.createElement(tagName);
-            t.className = className;
+            if (className) t.className = className;
             if (text) t.innerText = text;
             return t;
         },
@@ -52,18 +48,17 @@ const
                 o += line;
             }
             return o;
-        }
-    }
+        },
+    };
 
-class ASN1DOM extends ASN1 {
+export class ASN1DOM extends ASN1 {
 
     toDOM(spaces) {
         spaces = spaces || '';
         let isOID = (typeof oids === 'object') && (this.tag.isUniversal() && (this.tag.tagNumber == 0x06) || (this.tag.tagNumber == 0x0D));
-        let node = DOM.tag('div', 'node');
+        let node = DOM.tag('li');
         node.asn1 = this;
-        let head = DOM.tag('div', 'head');
-        head.appendChild(DOM.tag('span', 'spaces', spaces));
+        let head = DOM.tag('span', 'head');
         const typeName = this.typeName().replace(/_/g, ' ');
         if (this.def) {
             if (this.def.id) {
@@ -80,7 +75,12 @@ class ASN1DOM extends ASN1 {
             }
         }
         head.appendChild(DOM.text(typeName));
-        let content = this.content(contentLength);
+        let content;
+        try {
+            content = this.content(contentLength);
+        } catch (e) {
+            content = 'Cannot decode: ' + e;
+        }
         let oid;
         if (content !== null) {
             let preview = DOM.tag('span', 'preview'),
@@ -110,8 +110,24 @@ class ASN1DOM extends ASN1 {
             content = content.replace(/</g, '&lt;');
             content = content.replace(/\n/g, '<br>');
         }
-        node.appendChild(head);
-        this.node = node;
+        // add the li and details section for this node
+        let contentNode;
+        let childNode;
+        if (this.sub !== null) {
+            let details = DOM.tag('details');
+            details.setAttribute('open', '');
+            node.appendChild(details);
+            let summary = DOM.tag('summary', 'node');
+            details.appendChild(summary);
+            summary.appendChild(head);
+            contentNode = summary;
+            childNode = details;
+        } else {
+            contentNode = node;
+            contentNode.classList.add('node');
+            contentNode.appendChild(head);
+        }
+        this.node = contentNode;
         this.head = head;
         let value = DOM.tag('div', 'value');
         let s = 'Offset: ' + this.stream.pos + '<br>';
@@ -134,29 +150,26 @@ class ASN1DOM extends ASN1 {
             }
         }
         value.innerHTML = s;
-        node.appendChild(value);
-        let sub = DOM.tag('div', 'sub');
+        contentNode.appendChild(value);
         if (this.sub !== null) {
+            let sub = DOM.tag('ul');
+            childNode.appendChild(sub);
             spaces += '\xA0 ';
             for (let i = 0, max = this.sub.length; i < max; ++i)
                 sub.appendChild(this.sub[i].toDOM(spaces));
         }
-        node.appendChild(sub);
-        head.onclick = function () {
-            node.className = (node.className == 'node collapsed') ? 'node' : 'node collapsed';
-        };
+        bindContextMenu(node);
         return node;
     }
     fakeHover(current) {
-        this.node.className += ' hover';
+        this.node.classList.add('hover');
         if (current)
-            this.head.className += ' hover';
+            this.head.classList.add('hover');
     }
     fakeOut(current) {
-        let re = / ?hover/;
-        this.node.className = this.node.className.replace(re, '');
+        this.node.classList.remove('hover');
         if (current)
-            this.head.className = this.head.className.replace(re, '');
+            this.head.classList.remove('hover');
     }
     toHexDOM_sub(node, className, stream, start, end) {
         if (start >= end)
@@ -171,13 +184,14 @@ class ASN1DOM extends ASN1 {
         this.head.onmouseover = function () { this.hexNode.className = 'hexCurrent'; };
         this.head.onmouseout  = function () { this.hexNode.className = 'hex'; };
         node.asn1 = this;
-        node.onmouseover = function () {
+        node.onmouseover = function (event) {
             let current = !root.selected;
             if (current) {
                 root.selected = this.asn1;
                 this.className = 'hexCurrent';
             }
             this.asn1.fakeHover(current);
+            event.stopPropagation();
         };
         node.onmouseout = function () {
             let current = (root.selected == this.asn1);
@@ -187,6 +201,7 @@ class ASN1DOM extends ASN1 {
                 this.className = 'hex';
             }
         };
+        bindContextMenu(node);
         if (root == node) {
             let lineStart = this.posStart() & 0xF;
             if (lineStart != 0) {
@@ -231,7 +246,3 @@ class ASN1DOM extends ASN1 {
     }
 
 }
-
-return ASN1DOM;
-
-});
