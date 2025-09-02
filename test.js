@@ -1,12 +1,117 @@
 #!/usr/bin/env node
 
-import { ASN1 } from './asn1.js';
+import * as fs from 'fs'; // 'node:fs' doesn't work on NodeJS 14.5.0
+import { ASN1, Stream } from './asn1.js';
+import { Defs } from './defs.js';
 import { Hex } from './hex.js';
+import { Base64 } from './base64.js';
+import { Int10 } from './int10.js';
+import { createPatch } from 'diff';
 
-const
-    all = (process.argv[2] == 'all');
+const all = (process.argv[2] == 'all');
 
-const tests = [
+/** @type {Array<Tests>} */
+const tests = [];
+
+const stats = {
+    run: 0,
+    error: 0,
+};
+
+function diff(str1, str2) {
+    let s = createPatch('test', str1, str2, null, null, { context: 2 });
+    s = s.slice(s.indexOf('@@'), -1);
+    s = s.replace(/^@@.*/mg, '\x1B[34m$&\x1B[39m');
+    s = s.replace(/^-.*/mg, '\x1B[31m$&\x1B[39m');
+    s = s.replace(/^\+.*/mg, '\x1B[32m$&\x1B[39m');
+    return s;
+}
+
+/**
+ * A class for managing and executing tests.
+ */
+class Tests {
+    /**
+     * The title of the test suite.
+     * @type {string}
+     */
+    title;
+
+    /**
+     * An array to store test data.
+     * @type {Array<unknown>}
+     */
+    data;
+
+    /**
+     * Checks a row of test data.
+     * @param {Function} t - How to test a row of data.
+     */
+    checkRow;
+
+    /**
+     * Constructs a new Tests instance.
+     * @param {string} title - The title of the test suite.
+     * @param {Function} checkRow - A function to check each row of data.
+     * @param {Array<unknown>} data - The test data to be processed.
+     */
+    constructor(title, checkRow, data) {
+        this.title = title;
+        this.checkRow = checkRow;
+        this.data = data;
+    }
+
+    /**
+     * Executes the tests and checks their results for all rows.
+     */
+    checkAll() {
+        if (all) console.log('\x1B[1m\x1B[34m' + this.title + '\x1B[39m\x1B[22m');
+        for (const t of this.data)
+            this.checkRow(t);
+    }
+
+    /**
+     * Prints the result of a test, indicating if it passed or failed.
+     * @param {unknown} result The actual result of the test.
+     * @param {unknown} expected The expected result of the test.
+     * @param {string} comment A comment describing the test.
+     */
+    checkResult(result, expected, comment) {
+        ++stats.run;
+        if (!result || result == expected) {
+            if (all) console.log('\x1B[1m\x1B[32mOK \x1B[39m\x1B[22m ' + comment);
+        } else {
+            ++stats.error;
+            console.log('\x1B[1m\x1B[31mERR\x1B[39m\x1B[22m ' + comment);
+            if (result.length > 100) {
+                console.log('  \x1B[1m\x1B[34mDIF\x1B[39m\x1B[22m ' + diff(result, expected.toString()).replace(/\n/g, '\n      '));
+            } else {
+                console.log('  \x1B[1m\x1B[34mEXP\x1B[39m\x1B[22m ' + expected.toString().replace(/\n/g, '\n      '));
+                console.log('  \x1B[1m\x1B[33mGOT\x1B[39m\x1B[22m ' + result.replace(/\n/g, '\n      '));
+            }
+        }
+    }
+}
+
+tests.push(new Tests('ASN.1', function (t) {
+    const input = t[0],
+        expected = t[1],
+        comment = t[2];
+    let result;
+    try {
+        let node = ASN1.decode(Hex.decode(input));
+        if (typeof expected == 'function')
+            result = expected(node);
+        else
+            result = node.content();
+        //TODO: check structure, not only first level content
+    } catch (e) {
+        result = 'Exception:\n' + e;
+    }
+    if (expected instanceof RegExp)
+        result = expected.test(result) ? null : 'does not match';
+    this.checkResult(result, expected, comment);
+}, [
     // RSA Laboratories technical notes from https://luca.ntop.org/Teaching/Appunti/asn1.html
     ['0304066E5DC0', '(18 bit)\n011011100101110111', 'ntop, bit string: DER encoding'],
     ['0304066E5DE0', '(18 bit)\n011011100101110111', 'ntop, bit string: padded with "100000"'],
@@ -88,38 +193,74 @@ const tests = [
     ['181331393835313130363231303632372E332B3134', '1985-11-06 21:06:27.3 UTC+14:00', 'UTC offset +13 and +14'], // GitHub issue #54
     ['032100171E83C1B251803F86DD01E9CFA886BE89A7316D8372649AC2231EC669F81A84', n => { if (n.sub != null) return 'Should not decode content: ' + n.sub[0].content(); }, 'Key that resembles an UTCTime'], // GitHub issue #79
     ['171E83C1B251803F86DD01E9CFA886BE89A7316D8372649AC2231EC669F81A84', /^Exception:\nError: Unrecognized time: /, 'Invalid UTCTime'], // GitHub issue #79
-];
+]));
 
-let
-    run = 0,
-    expErr = 0,
-    error = 0;
-tests.forEach(function (t) {
-    const input = t[0],
-        expected = t[1],
-        comment = t[2];
-    let result;
-    try {
-        let node = ASN1.decode(Hex.decode(input));
-        if (typeof expected == 'function')
-            result = expected(node);
-        else
-            result = node.content();
-        //TODO: check structure, not only first level content
-    } catch (e) {
-        result = 'Exception:\n' + e;
+tests.push(new Tests('Dump of examples', function () {
+    const examples = fs.readdirSync('examples/').filter(f => f.endsWith('.dump'));
+    for (const example of examples) {
+        const filename = example.slice(0, -5); // Remove '.dump' suffix
+        const expected = fs.readFileSync('examples/' + example, 'utf8');
+        let data = fs.readFileSync('examples/' + filename);
+        data = Base64.unarmor(data);
+        let node = ASN1.decode(data);
+        const types = Defs.commonTypes
+            .map(type => {
+                const stats = Defs.match(node, type);
+                return { type, match: stats.recognized / stats.total };
+            })
+            .sort((a, b) => b.match - a.match);
+        Defs.match(node, types[0].type);
+        let result = node.toPrettyString();
+        this.checkResult(result, expected, 'Dump of examples/' + filename);
     }
-    if (expected instanceof RegExp)
-        result = expected.test(result) ? null : 'does not match';
-    ++run;
-    if (!result || result == expected) {
-        if (all) console.log('\x1B[1m\x1B[32mOK \x1B[39m\x1B[22m ' + comment);
-    } else {
-        ++error;
-        console.log('\x1B[1m\x1B[31mERR\x1B[39m\x1B[22m ' + comment);
-        console.log('  \x1B[1m\x1B[34mEXP\x1B[39m\x1B[22m ' + expected.toString().replace(/\n/g, '\n      '));
-        console.log('  \x1B[1m\x1B[33mGOT\x1B[39m\x1B[22m ' + result.replace(/\n/g, '\n      '));
-    }
-});
-console.log(run + ' tested, ' + expErr + ' expected, ' + error + ' errors.');
-process.exit(error ? 1 : 0);
+}, [
+    [0],
+]));
+
+tests.push(new Tests('Base64', function (t) {
+    let bin = Base64.decode(t);
+    let url = new Stream(bin, 0).b64Dump(0, bin.length);
+    // check base64url encoding
+    this.checkResult(url, t.replace(/\n/g, '').replace(/=*$/g, ''), 'Base64url: ' + bin.length + ' bytes');
+    // check conversion from base64url to base64
+    let pretty = Base64.pretty(url);
+    this.checkResult(pretty, t, 'Base64pretty: ' + bin.length + ' bytes');
+    let std = new Stream(bin, 0).b64Dump(0, bin.length, 'std');
+    // check direct base64 encoding
+    this.checkResult(std, t.replace(/\n/g, ''), 'Base64: ' + bin.length + ' bytes');
+}, [
+    'AA==',
+    'ABA=',
+    'ABCD',
+    'ABCDEA==',
+    'ABCDEFE=',
+    'ABCDEFGH',
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQR\nSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456w==',
+]));
+
+tests.push(new Tests('Int10', function (t) {
+    this.row = (0|this.row) + 1;
+    this.num = this.num || new Int10();
+    this.num.mulAdd(t[0], t[1]);
+    this.checkResult(this.num.toString(), t[2], 'Int10 row ' + this.row);
+}, [
+    [0, 1000000000, '1000000000'],
+    [256, 23, '256000000023'],
+    [256, 23, '65536000005911'],
+    [256, 23, '16777216001513239'],
+    [256, 23, '4294967296387389207'],
+    [256, 23, '1099511627875171637015'],
+    [256, 23, '281474976736043939075863'],
+    [253, 1, '71213169114219116586193340'],
+    [253, 1, '18016931785897436496306915021'],
+    [253, 1, '4558283741832051433565649500314'],
+    [253, 1, '1153245786683509012692109323579443'],
+    [253, 1, '291771184030927780211103658865599080'],
+    [1, 0, '291771184030927780211103658865599080'],
+]));
+
+for (const t of tests)
+    t.checkAll();
+
+console.log(stats.run + ' tested, ' + stats.error + ' errors.');
+process.exit(stats.error ? 1 : 0);

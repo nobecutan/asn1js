@@ -1,5 +1,20 @@
 #! /usr/bin/env node
 
+// RFC ASN.1 definition parser
+// Copyright (c) 2021 Lapo Luchini <lapo@lapo.it>
+
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+// ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+// ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+// OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
 import * as fs from 'node:fs';
 
 const
@@ -55,6 +70,25 @@ const
             [ /OCTET STRING[(]SIZE[(]0..MAX[)][)]/g, 'OCTET STRING' ],
             [ /emptyString {4}EncodingParameters ::= ''H/g, '' ],
             [ /[(]CONSTRAINED BY[^)]+[)]/g, '' ],
+        ],
+        4511: [
+            [ /^\s+-- .*\r?\n/mg, '' ], // comments
+            [ 'EXTENSIBILITY IMPLIED', '' ],
+            [ /\.\.\.(,| {2})/g, '' ],
+            [ /value AttributeValue/g, 'AttributeValue' ],
+            [ /control Control/g, 'Control' ],
+            [ /Attribute ::= PartialAttribute\(WITH COMPONENTS \{[^}]+\}\)/g, 'PartialAttribute ::= SEQUENCE { type AttributeDescription, vals SET SIZE (1..MAX) OF AttributeValue }' ],
+            [ /,\s+\}/g, '}' ],
+            [ /SaslCredentials,/g, 'SaslCredentials' ],
+            [ /(BindResponse|ExtendedResponse) ::= \[APPLICATION [0-9]+\] SEQUENCE \{[^}]+\}/g, '$1 ::= ANY' ],
+            [ /selector LDAPString/g, 'LDAPString' ],
+            [ /filter Filter/g, 'Filter' ],
+            [ /MatchingRuleAssertion,/g, 'MatchingRuleAssertion' ],
+            [ /OF substring CHOICE/g, 'OF CHOICE' ],
+            [ /partialAttribute PartialAttribute/g, 'PartialAttribute' ],
+            [ /uri URI/g, 'URI' ],
+            [ /OF change SEQUENCE/g, 'OF SEQUENCE' ],
+            [ /attribute Attribute/g, 'Attribute' ],
         ],
     };
 
@@ -179,7 +213,7 @@ class Parser {
     tryToken(expect) {
         let p = this.pos;
         let t;
-        try { t = this.parseToken(); } catch (e) { /*ignore*/ }
+        try { t = this.parseToken(); } catch (ignore) { /*ignore*/ }
         // console.log('[debug] tryToken(' + expect + ') = ' + t);
         if (t == expect)
             return true;
@@ -309,8 +343,22 @@ class Parser {
         let plicit = this.getRegEx('explicit/implicit', reTagType);
         if (plicit == '') plicit = currentMod.tagDefault;
         let x = this.parseType();
+        let name;
+        switch (tagClass) { // keep in sync with ASN1.typeName
+        case 'APPLICATION':
+            name = 'Application ' + t;
+            break;
+        case 'PRIVATE':
+            name = 'Private ' + t;
+            break;
+        case 'CONTEXT':
+            // fall through
+        default:
+            name = '[' + t + ']';
+            break;
+        }
         return {
-            name: '[' + t + ']',
+            name,
             type: 'tag',
             'class': tagClass,
             explicit: (plicit == 'EXPLICIT'),
@@ -323,7 +371,7 @@ class Parser {
         let p = this.pos;
         try {
             return this.parseBuiltinType();
-        } catch (e) {
+        } catch (ignore) {
             // console.log('[debug] parseAssignment failed on parseType', e);
             this.pos = p;
             let x = {
@@ -394,13 +442,13 @@ class Parser {
             case 'NULL':
                 return null;
             }
-        } catch (e) {
+        } catch (ignore) {
             this.pos = p;
         }
         p = this.pos;
         try {
             return this.parseIdentifier();
-        } catch (e) {
+        } catch (ignore) {
             this.pos = p;
         }
         this.exception('Unknown value type.');

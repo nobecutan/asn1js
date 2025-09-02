@@ -1,5 +1,5 @@
 // ASN.1 JavaScript decoder
-// Copyright (c) 2008-2024 Lapo Luchini <lapo@lapo.it>
+// Copyright (c) 2008 Lapo Luchini <lapo@lapo.it>
 
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted, provided that the above
@@ -21,7 +21,8 @@ const
     reTimeS =     /^(\d\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])(?:([0-5]\d)(?:([0-5]\d)(?:[.,](\d{1,3}))?)?)?(Z|(-(?:0\d|1[0-2])|[+](?:0\d|1[0-4]))([0-5]\d)?)?$/,
     reTimeL = /^(\d\d\d\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])(?:([0-5]\d)(?:([0-5]\d)(?:[.,](\d{1,3}))?)?)?(Z|(-(?:0\d|1[0-2])|[+](?:0\d|1[0-4]))([0-5]\d)?)?$/,
     hexDigits = '0123456789ABCDEF',
-    b64Safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_',
+    b64Std = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',
+    b64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_',
     tableT61 = [
         ['', ''],
         ['AEIOUaeiou', 'ÀÈÌÒÙàèìòù'], // Grave
@@ -56,36 +57,55 @@ function checkPrintable(s) {
     }
 }
 
-class Stream {
+/** Class to manage a stream of bytes, with a zero-copy approach.
+ * It uses an existing array or binary string and advances a position index. */
+export class Stream {
 
+    /**
+     * @param {Stream|array|string} enc data (will not be copied)
+     * @param {?number} pos starting position (mandatory when `end` is not a Stream)
+     */
     constructor(enc, pos) {
         if (enc instanceof Stream) {
             this.enc = enc.enc;
             this.pos = enc.pos;
         } else {
-            // enc should be an array or a binary string
             this.enc = enc;
             this.pos = pos;
         }
+        if (typeof this.pos != 'number')
+            throw new Error('"pos" must be a numeric value');
+        if (typeof this.enc == 'string')
+            this.getRaw = pos => this.enc.charCodeAt(pos);
+        else if (typeof this.enc[0] == 'number')
+            this.getRaw = pos => this.enc[pos];
+        else
+            throw new Error('"enc" must be a numeric array or a string');
     }
+    /** Get the byte at current position (and increment it) or at a specified position (and avoid moving current position).
+     * @param {?number} pos read position if specified, else current position (and increment it) */
     get(pos) {
         if (pos === undefined)
             pos = this.pos++;
         if (pos >= this.enc.length)
             throw new Error('Requesting byte offset ' + pos + ' on a stream of length ' + this.enc.length);
-        return (typeof this.enc == 'string') ? this.enc.charCodeAt(pos) : this.enc[pos];
+        return this.getRaw(pos);
     }
-    hexByte(b) {
+    /** Convert a single byte to an hexadcimal string (of length 2).
+     * @param {number} b */
+    static hexByte(b) {
         return hexDigits.charAt((b >> 4) & 0xF) + hexDigits.charAt(b & 0xF);
     }
-    /** Hexadecimal dump.
-     * @param type 'raw', 'byte' or 'dump' */
+    /** Hexadecimal dump of a specified region of the stream.
+     * @param {number} start starting position (included)
+     * @param {number} end ending position (excluded)
+     * @param {string} type 'raw', 'byte' or 'dump' (default) */
     hexDump(start, end, type = 'dump') {
         let s = '';
         for (let i = start; i < end; ++i) {
             if (type == 'byte' && i > start)
                 s += ' ';
-            s += this.hexByte(this.get(i));
+            s += Stream.hexByte(this.get(i));
             if (type == 'dump')
                 switch (i & 0xF) {
                 case 0x7: s += '  '; break;
@@ -95,23 +115,29 @@ class Stream {
         }
         return s;
     }
-    b64Dump(start, end) {
+    /** Base64url dump of a specified region of the stream (according to RFC 4648 section 5).
+     * @param {number} start starting position (included)
+     * @param {number} end ending position (excluded)
+     * @param {string} type 'url' (default, section 5 without padding) or 'std' (section 4 with padding) */
+    b64Dump(start, end, type = 'url') {
+        const b64 = type === 'url' ? b64URL : b64Std;
         let extra = (end - start) % 3,
             s = '',
             i, c;
         for (i = start; i + 2 < end; i += 3) {
             c = this.get(i) << 16 | this.get(i + 1) << 8 | this.get(i + 2);
-            s += b64Safe.charAt(c >> 18 & 0x3F);
-            s += b64Safe.charAt(c >> 12 & 0x3F);
-            s += b64Safe.charAt(c >>  6 & 0x3F);
-            s += b64Safe.charAt(c       & 0x3F);
+            s += b64.charAt(c >> 18 & 0x3F);
+            s += b64.charAt(c >> 12 & 0x3F);
+            s += b64.charAt(c >>  6 & 0x3F);
+            s += b64.charAt(c       & 0x3F);
         }
         if (extra > 0) {
             c = this.get(i) << 16;
             if (extra > 1) c |= this.get(i + 1) << 8;
-            s += b64Safe.charAt(c >> 18 & 0x3F);
-            s += b64Safe.charAt(c >> 12 & 0x3F);
-            if (extra == 2) s += b64Safe.charAt(c >> 6 & 0x3F);
+            s += b64.charAt(c >> 18 & 0x3F);
+            s += b64.charAt(c >> 12 & 0x3F);
+            if (extra == 2) s += b64.charAt(c >> 6 & 0x3F);
+            if (b64 === b64Std) s += '==='.slice(0, 3 - extra);
         }
         return s;
     }
@@ -269,7 +295,7 @@ class Stream {
             s = this.parseStringUTF(start, end, maxLength);
             checkPrintable(s.str);
             return { size: end - start, str: s.str };
-        } catch (e) {
+        } catch (ignore) {
             // ignore
         }
         maxLength /= 2; // we work in bytes
@@ -277,7 +303,7 @@ class Stream {
             end = start + maxLength;
         s = '';
         for (let i = start; i < end; ++i)
-            s += this.hexByte(this.get(i));
+            s += Stream.hexByte(this.get(i));
         if (len > maxLength)
             s += ellipsis;
         return { size: len, str: s };
@@ -535,9 +561,11 @@ export class ASN1 {
     toHexString(type = 'raw') {
         return this.stream.hexDump(this.posStart(), this.posEnd(), type);
     }
-    /** Base64 dump of the node. */
-    toB64String() {
-        return this.stream.b64Dump(this.posStart(), this.posEnd());
+    /** Base64url dump of the node (according to RFC 4648 section 5).
+     * @param {string} type 'url' (default, section 5 without padding) or 'std' (section 4 with padding)
+    */
+    toB64String(type = 'url') {
+        return this.stream.b64Dump(this.posStart(), this.posEnd(), type);
     }
     static decodeLength(stream) {
         let buf = stream.get(),
@@ -610,7 +638,7 @@ export class ASN1 {
                         throw new Error('Unable to parse content: ' + e);
                     }
                 }
-            } catch (e) {
+            } catch (ignore) {
                 // but silently ignore when they don't
                 sub = null;
                 //DEBUG console.log('Could not decode structure at ' + start + ':', e);

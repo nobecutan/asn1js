@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// usage:
+// ./dumpASN1.js filename
+// ./dumpASN1.js data:base64,MDMCAQFjLgQACgEACgEAAgEAAgEAAQEAoA+jDQQFTnRWZXIEBAEAAAAwCgQITmV0bG9nb24===
+
 import * as fs from 'node:fs';
 import { Base64 } from './base64.js';
 import { ASN1 } from './asn1.js';
@@ -48,7 +52,7 @@ let content = match
     : fs.readFileSync(filename);
 try { // try PEM first
     content = Base64.unarmor(content);
-} catch (e) { // try DER/BER then
+} catch (ignore) { // try DER/BER then
 }
 let result = ASN1.decode(content);
 content = null;

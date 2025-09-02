@@ -3,7 +3,7 @@ asn1js
 
 asn1js is a JavaScript generic ASN.1 parser/decoder that can decode any valid ASN.1 DER or BER structures.
 
-An example page that can decode Base64-encoded (raw base64, PEM armoring and `begin-base64` are recognized) or Hex-encoded (or local files with some browsers) is included and can be used both [online on the official website](https://lapo.it/asn1js/) or [offline (ZIP file)](https://lapo.it/asn1js/asn1js.zip).
+An example page that can decode Base64-encoded (raw base64, PEM armoring and `begin-base64` are recognized) or Hex-encoded (or local files with some browsers) is included and can be used both [online on the official website](https://asn1js.eu/) or [offline (ZIP file)](https://lapo.it/asn1js/asn1js.zip) by opening `index-local.html`.
 
 Usage with `nodejs`
 -------------------
@@ -67,7 +67,7 @@ document.body.innerText = ASN1.decode(Hex.decode('06032B6570')).content();
 Local usage
 --------------------
 
-Since unfortunately ESM modules are not working on `file:` protocol due to [CORS issues](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules#other_differences_between_modules_and_standard_scripts), there is a bundled [single-file version working locally](https://asn1js.eu/index-local.html). It doesn't work online (due to [CSP](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) restrictions about inline content) but can be saved locally and opened in a browser. ([known bug](https://github.com/lapo-luchini/asn1js/issues/89): dark mode is currently broken in this mode)
+Since unfortunately ESM modules are not working on `file:` protocol due to [CORS issues](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules#other_differences_between_modules_and_standard_scripts), there is a bundled [single-file version working locally](https://asn1js.eu/index-local.html). It doesn't work online (due to [CSP](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) restrictions about inline content) but can be saved locally and opened in a browser.
 
 Usage from CLI
 --------------------
@@ -81,7 +81,7 @@ npx @lapo/asn1js ed25519.cer
 ISC license
 -----------
 
-ASN.1 JavaScript decoder Copyright (c) 2008-2024 Lapo Luchini <lapo@lapo.it>
+ASN.1 JavaScript decoder Copyright (c) 2008-2025 Lapo Luchini <lapo@lapo.it>
 
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
@@ -105,4 +105,5 @@ links
 - [dedicated domain](https://asn1js.eu/)
 - [InDefero tracker](http://idf.lapo.it/p/asn1js/)
 - [GitHub mirror](https://github.com/lapo-luchini/asn1js)
+- [ChangeLog on GitHub](https://github.com/lapo-luchini/asn1js/blob/trunk/CHANGELOG.md)
 - [Ohloh code stats](https://www.openhub.net/p/asn1js)
